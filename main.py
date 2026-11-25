@@ -1,13 +1,13 @@
 """
 F1 Undercut Strategy & Tire Degradation Decision Support Suite.
 
-Uses the Kaggle Formula 1 Race Data dataset (jtrotman/formula-1-race-data) and
-FastF1 to model fuel-corrected tire degradation, detect tire cliffs, simulate
+Uses the Kaggle Formula 1 Race Data dataset (jtrotman/formula-1-race-data) to
+model fuel-corrected tire degradation, detect tire cliffs, simulate
 optimal undercut pit windows, backtest against historical results, and render
 an interactive Plotly dashboard for any user-selected circuit and tire compound.
 
 Requirements:
-    pip install kagglehub fastf1 pandas numpy scikit-learn plotly
+    pip install kagglehub pandas numpy scikit-learn plotly
 
 Usage:
     # Interactive mode (prompts for circuit and compound):
@@ -21,7 +21,6 @@ import argparse
 import os
 import sys
 
-import fastf1
 import kagglehub
 import numpy as np
 import pandas as pd
@@ -65,21 +64,6 @@ POPULAR_CIRCUITS = [
     "interlagos",
     "albert_park",
 ]
-
-# Maps Kaggle circuitRef values to FastF1 event lookup names
-FASTF1_EVENT_MAP = {
-    "silverstone": "Silverstone",
-    "monaco": "Monaco",
-    "spa": "Spa-Francorchamps",
-    "monza": "Monza",
-    "red_bull_ring": "Austria",
-    "suzuka": "Suzuka",
-    "marina_bay": "Singapore",
-    "americas": "United States",
-    "interlagos": "Sao Paulo",
-    "albert_park": "Australia",
-}
-
 
 # =============================================================================
 # Step 1: Data Loading & Preprocessing (Kaggle Dataset)
@@ -184,61 +168,7 @@ def load_and_prepare_data(data_dir: str):
 
 
 # =============================================================================
-# Step 2: FastF1 Session Enrichment (Real Compounds & Weather)
-# =============================================================================
-def load_fastf1_context(
-    circuit_ref: str,
-    circuit_name: str,
-    year: int = 2023,
-    cache_dir: str = "data/fastf1_cache",
-) -> dict:
-    """
-    Fetch modern race lap/compound and weather data from FastF1 for the
-    selected circuit. Returns an empty dict gracefully if unavailable.
-    """
-    os.makedirs(cache_dir, exist_ok=True)
-    if hasattr(fastf1.Cache, "configure"):
-        fastf1.Cache.configure(cache_dir=cache_dir)
-    else:
-        fastf1.Cache.enable_cache(cache_dir)
-
-    event_query = FASTF1_EVENT_MAP.get(circuit_ref, circuit_name)
-    context = {}
-
-    try:
-        print(f"Loading FastF1 {year} Race session for '{event_query}'...")
-        session = fastf1.get_session(year, event_query, "R")
-        session.load(laps=True, telemetry=False, weather=True)
-
-        laps = session.laps
-        if laps is not None and not laps.empty:
-            cols = ["LapNumber", "Driver", "Team", "Compound", "TyreLife", "LapTime"]
-            available_cols = [c for c in cols if c in laps.columns]
-            context["laps"] = laps[available_cols]
-
-            if "Compound" in laps.columns and "TyreLife" in laps.columns:
-                compound_summary = (
-                    laps.dropna(subset=["Compound", "TyreLife"])
-                    .groupby("Compound")["TyreLife"]
-                    .agg(["count", "mean", "max"])
-                )
-                context["compound_summary"] = compound_summary
-
-        weather = session.weather_data
-        if weather is not None and not weather.empty:
-            context["weather"] = {
-                "avg_air_temp": float(weather["AirTemp"].mean()),
-                "avg_track_temp": float(weather["TrackTemp"].mean()),
-                "rainfall": bool(weather["Rainfall"].any()),
-            }
-    except Exception as exc:
-        print(f"[FastF1] Skipping live session enrichment ({exc}).")
-
-    return context
-
-
-# =============================================================================
-# Step 3: Predictive Modeling (Quantile Gradient Boosting)
+# Step 2: Predictive Modeling (Quantile Gradient Boosting)
 # =============================================================================
 def train_degradation_models(clean_df: pd.DataFrame) -> dict:
     """
@@ -290,7 +220,7 @@ def train_degradation_models(clean_df: pd.DataFrame) -> dict:
 
 
 # =============================================================================
-# Step 4: Stint Forecast, Undercut Simulator & Historical Backtest
+# Step 3: Stint Forecast, Undercut Simulator & Historical Backtest
 # =============================================================================
 def forecast_stint_with_ci(
     models: dict,
@@ -425,7 +355,7 @@ def run_historical_backtest(
 
 
 # =============================================================================
-# Step 5: Interactive Plotly Dashboard
+# Step 4: Interactive Plotly Dashboard
 # =============================================================================
 def plot_strategy_dashboard(
     sim_laps: pd.DataFrame,
@@ -563,7 +493,7 @@ def plot_strategy_dashboard(
 
 
 # =============================================================================
-# Step 6: Universal Strategy Pipeline
+# Step 5: Universal Strategy Pipeline
 # =============================================================================
 def run_race_strategy_pipeline(
     circuit_ref: str,
@@ -573,8 +503,6 @@ def run_race_strategy_pipeline(
     circuits: pd.DataFrame,
     results: pd.DataFrame,
     models: dict,
-    fastf1_year: int = 2023,
-    use_fastf1: bool = True,
     traffic_penalty_sec: float = 1.5,
     save_html: str | None = None,
     show_plot: bool = True,
@@ -603,21 +531,6 @@ def run_race_strategy_pipeline(
         f"Typical Race Laps: {total_race_laps}"
     )
     print(f"Selected Compound: {compound_name} (Code: {compound_code})\n")
-
-    # Optional FastF1 real-world compound & weather context
-    if use_fastf1:
-        f1_ctx = load_fastf1_context(circuit_ref, circuit_name, year=fastf1_year)
-        if "weather" in f1_ctx:
-            w = f1_ctx["weather"]
-            print(
-                f"[FastF1 {fastf1_year}] Avg Air Temp: {w['avg_air_temp']:.1f}°C | "
-                f"Avg Track Temp: {w['avg_track_temp']:.1f}°C | "
-                f"Rain: {'Yes' if w['rainfall'] else 'No'}"
-            )
-        if "compound_summary" in f1_ctx:
-            print(f"\n[FastF1 {fastf1_year}] Observed Pirelli Compound Stint Lengths:")
-            print(f1_ctx["compound_summary"].round(1))
-            print()
 
     # Predictive stint forecast & cliff detection
     sim_laps, detected_cliff = forecast_stint_with_ci(
@@ -758,17 +671,6 @@ def parse_args():
         help="Starting tire compound proxy.",
     )
     parser.add_argument(
-        "--year",
-        type=int,
-        default=2023,
-        help="FastF1 season year for live compound/weather context (default: 2023).",
-    )
-    parser.add_argument(
-        "--no-fastf1",
-        action="store_true",
-        help="Skip FastF1 API fetch and use Kaggle data only.",
-    )
-    parser.add_argument(
         "--traffic-penalty",
         type=float,
         default=1.5,
@@ -809,8 +711,6 @@ def main():
             circuits=circuits,
             results=results,
             models=models,
-            fastf1_year=args.year,
-            use_fastf1=not args.no_fastf1,
             traffic_penalty_sec=args.traffic_penalty,
             save_html=args.save_html,
             show_plot=not args.no_show,
@@ -828,8 +728,6 @@ def main():
             circuits=circuits,
             results=results,
             models=models,
-            fastf1_year=args.year,
-            use_fastf1=not args.no_fastf1,
             traffic_penalty_sec=args.traffic_penalty,
             save_html=args.save_html,
             show_plot=not args.no_show,

@@ -91,25 +91,7 @@ with st.form("strategy_controls"):
             format_func=lambda value: circuit_names.get(value, value),
         )
         compound_name = st.selectbox("Starting tire compound", ["Soft", "Medium", "Hard"])
-        year = st.number_input(
-            "Historical FastF1 season",
-            min_value=1950,
-            max_value=2100,
-            value=2023,
-            key="fastf1_year",
-        )
     with control_right:
-        use_fastf1 = st.checkbox(
-            "Fetch archived FastF1 session data",
-            value=False,
-            key="fetch_archived_fastf1",
-            help=(
-                "Optional historical race laps, tire compounds, and weather. This is not live timing. "
-                "It contacts FastF1/F1 services and may take several minutes. Leave unchecked to run "
-                "without FastF1 or an F1 account."
-            ),
-        )
-        st.caption("FastF1 is optional. The default analysis uses the Kaggle dataset only.")
         traffic_penalty = st.number_input(
             "Pit rejoin traffic penalty (seconds)",
             min_value=0.0,
@@ -138,8 +120,6 @@ if run_analysis:
                     circuits=circuits,
                     results=results,
                     models=st.session_state.models,
-                    fastf1_year=int(year),
-                    use_fastf1=use_fastf1,
                     traffic_penalty_sec=traffic_penalty,
                     show_plot=False,
                 )
